@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Trace GPS V4.1</title>
+<link href="https://unpkg.com/maplibre-gl@5.2.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+:root{--bg:#0c2230;--panel:rgba(8,24,34,.96);--panel2:rgba(8,24,34,.99);--border:rgba(255,255,255,.08);--text:#edf4f8;--muted:#a8bcc8;--cyan:#27d8ff;--red:#ff4d4f;--trace:#7a4127;--safe-top:env(safe-area-inset-top);--safe-bottom:env(safe-area-inset-bottom)}
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',Inter,Arial,sans-serif}#map{position:fixed;inset:0}.maplibregl-ctrl-top-right,.maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right,.maplibregl-ctrl-top-left{display:none}.maplibregl-ctrl-attrib{font-size:10px!important;background:rgba(255,255,255,.72)!important}
+.topbar{position:fixed;left:0;right:0;top:0;z-index:20;padding:calc(var(--safe-top) + 4px) 8px 5px;height:calc(54px + var(--safe-top));display:grid;grid-template-columns:repeat(5,1fr);gap:4px;align-items:end;background:linear-gradient(180deg,rgba(8,24,34,.98),rgba(8,24,34,.92));border-bottom:1px solid var(--border)}
+.iconbtn{border:0;background:transparent;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 0 1px;border-radius:10px;-webkit-tap-highlight-color:transparent}.iconbtn:active,.fab:active,.northBtn:active,.btn:active,.option:active,.chip:active,.listItem:active,.resultItem:active{transform:scale(.98)}
+.icon{width:28px;height:28px;border-radius:10px;display:grid;place-items:center;font-size:14px;background:rgba(39,216,255,.08);box-shadow:inset 0 0 0 1px rgba(39,216,255,.08);color:var(--cyan)}.trace .icon.off,.position.off .icon{color:#93a8b3;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}.label{font-size:8px;font-weight:700;letter-spacing:.2px}
+.rec{position:fixed;top:calc(var(--safe-top) + 58px);right:10px;z-index:25;display:none;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;background:rgba(255,77,79,.18);border:1px solid rgba(255,77,79,.35);font-size:11px;font-weight:900;color:#fff}.rec.on{display:flex}.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 0 4px rgba(255,77,79,.18)}
+.fab.orient { right: 12px; bottom: calc(236px + var(--safe-bottom)); left: auto; transform: none; font-size: 16px; font-weight: 900; z-index: 25; }
+.fab.orient.free { color: #fff; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
+.fab{position:fixed;border:1px solid var(--border);background:var(--panel);color:var(--cyan);display:grid;place-items:center;z-index:20;width:52px;height:52px;border-radius:50%;font-size:22px}.fab.maps{right:12px;top:50%;bottom:auto;transform:translateY(-50%);left:auto}.fab.locate{right:12px;bottom:calc(166px + var(--safe-bottom));left:auto;transform:none}.fab.dest{right:12px;bottom:calc(106px + var(--safe-bottom));left:auto;transform:none;font-size:20px}.fab.locate.off{color:#93a8b3}
+.footer{position:fixed;left:0;right:0;bottom:0;z-index:20;min-height:calc(94px + var(--safe-bottom));padding:8px 10px calc(10px + var(--safe-bottom));background:linear-gradient(180deg,rgba(8,24,34,.96),rgba(8,24,34,.99));border-top:1px solid var(--border)}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.metric .k{font-size:10px;color:var(--muted);margin-bottom:3px}.metric .v{font-size:20px;line-height:1;font-weight:900;color:var(--cyan)}.status{margin-top:6px;font-size:11px;color:var(--muted);text-align:center;min-height:13px}
+.sheet{position:fixed;right:10px;left:auto;width:min(300px,calc(100vw - 20px));max-height:min(64vh,560px);overflow:auto;z-index:30;padding:9px;background:var(--panel2);border:1px solid var(--border);border-radius:16px;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(14px) scale(.96);bottom:-120vh;transition:.18s ease}.sheet.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0) scale(1);bottom:calc(66px + 94px + var(--safe-bottom))}.sheet.left{left:10px;right:auto}
+
+.sheet.top { top: -120vh; bottom: auto; left: 10px; right: 10px; width: auto; max-width: none; transform: translateY(-14px) scale(.96); }
+.sheet.top.open { top: calc(var(--safe-top) + 64px); bottom: auto; transform: translateY(0) scale(1); }
+.sheet.right { right: -320px; top: 50%; bottom: auto; transform: translateY(-50%); left: auto; opacity: 1; visibility: visible; pointer-events: none; transition: right .25s ease; }
+.sheet.right.open { right: 74px; transform: translateY(-50%); bottom: auto; pointer-events: auto; }
+
+.sheet h3{margin:0 0 7px;font-size:14px}.sub{margin:0 0 7px;font-size:11px;color:var(--muted)}.groupTitle{margin:10px 4px 4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.option,.toggle,.colorrow,.inputrow{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:9px 10px;margin:5px 0;border-radius:13px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text)}.option.active{outline:2px solid rgba(39,216,255,.16)}.option.disabled{opacity:.45}.leftBox{display:flex;flex-direction:column;gap:2px;text-align:left}.leftBox span:first-child{font-size:13px}.leftBox span:last-child{font-size:10px;color:var(--muted)}.pill{font-size:10px;color:var(--cyan)}
+.switch{appearance:none;width:40px;height:24px;background:#274354;border-radius:999px;border:1px solid var(--border);position:relative}.switch:checked{background:rgba(39,216,255,.32)}.switch:after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s ease}.switch:checked:after{left:19px}
+.colorchips{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.chip{width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,.18)}.chip.active{outline:2px solid rgba(255,255,255,.6)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.btn{border:0;border-radius:13px;padding:10px 8px;font-size:12px;font-weight:800}.dark{background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--border)}.red{background:linear-gradient(135deg,#ff6a6a,#ff4f4f);color:#fff}.cyan{background:linear-gradient(135deg,#18b6f4,#27d8ff);color:#04222d}
+input[type=text]{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:11px 12px;color:var(--text);font-size:13px;outline:none}
+.list{display:flex;flex-direction:column;gap:8px}.listItem,.resultItem{width:100%;text-align:left;border:1px solid var(--border);background:rgba(255,255,255,.03);border-radius:14px;padding:10px}.listTitle{font-size:13px;font-weight:800}.listMeta{margin-top:4px;font-size:11px;color:var(--muted)}.listActions{display:flex;gap:8px;margin-top:8px}.miniBtn{border:0;border-radius:10px;padding:7px 9px;font-size:11px;font-weight:800;background:rgba(39,216,255,.12);color:var(--cyan)}.miniBtn.red{background:rgba(255,77,79,.16);color:#fff}
+.modalWrap{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:18px}.modalWrap.open{display:flex}.modal{width:min(340px,100%);background:var(--panel2);border:1px solid var(--border);border-radius:18px;padding:14px}.modal h3{margin:0 0 8px;font-size:16px}.modal p{margin:0 0 10px;font-size:13px;color:var(--muted);line-height:1.45}
+.destInfo{font-size:12px;color:var(--cyan);margin:6px 2px 0}.hint{font-size:11px;color:var(--muted);margin-top:6px}
+.destMarker{display:flex;flex-direction:column;align-items:center;pointer-events:none;transform:translateY(-16px)}.destPinWrap { position: relative; width: 36px; height: 36px; border-radius: 50% 50% 50% 0; background: var(--red); transform: rotate(-45deg); border: 3px solid rgba(255,255,255,.95); box-shadow: 0 6px 14px rgba(0,0,0,.3); }
+.destPinCore { position: absolute; top: 10px; left: 10px; width: 10px; height: 10px; border-radius: 50%; background: #fff; }.destBadge { margin-bottom: 4px; padding: 4px 10px; border-radius: 999px; background: rgba(8,24,34,.96); border: 1px solid rgba(255,255,255,.1); font-size: 12px; font-weight: 900; color: #fff; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="rec" id="rec"><span class="dot"></span>REC</div>
+<button class="fab orient free" id="orientBtn" aria-label="Orientation">N↑</button>
+<div class="topbar">
+  <button class="iconbtn" id="playBtn"><span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span><span class="label">Play</span></button>
+  <button class="iconbtn" id="pauseBtn"><span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></span><span class="label">Pause</span></button>
+  <button class="iconbtn stop" id="stopBtn"><span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 6h12v12H6z"/></svg></span><span class="label">Stop</span></button>
+  <button class="iconbtn trace" id="traceBtn"><span class="icon" id="traceIcon"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></span><span class="label">Traces</span></button>
+  <button class="iconbtn" id="settingsBtn"><span class="icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.73 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></span><span class="label">Réglages</span></button>
+</div>
+<button class="fab maps" id="mapsBtn" aria-label="Fonds de carte">▦</button>
+<button class="fab locate" id="locateBtn" aria-label="Centrage position">◎</button>
+<button class="fab dest" id="destBtn" aria-label="Destination">➜</button>
+<div class="sheet left" id="destSheet">
+  <h3>Destination</h3>
+  <p class="sub">Tapez une destination puis choisissez le bon résultat.</p>
+  <div class="inputrow"><input id="destInput" type="text" placeholder="Adresse, ville, lieu"></div>
+  <div class="actions"><button class="btn cyan" id="searchDestBtn">Rechercher</button><button class="btn dark" id="clearDestBtn">Effacer</button></div>
+  <div class="destInfo" id="destInfo">Aucune destination.</div>
+  <div class="list" id="destResults"></div>
+  <div class="hint">Distance calculée à vol d'oiseau depuis votre position.</div>
+</div>
+<div class="sheet" class="sheet right" id="mapSheet"><h3>Fond de carte</h3><p class="sub">Touchez une carte pour l'activer.</p><div id="layerList"></div></div>
+<div class="sheet" class="sheet top" id="settingsSheet">
+  <h3>Réglages</h3>
+  <label class="toggle"><span>Haute précision</span><input id="highAccuracy" class="switch" type="checkbox" checked></label>
+  <label class="toggle"><span>Centrage auto</span><input id="autoCenter" class="switch" type="checkbox" checked></label>
+  <label class="toggle"><span>Mode 3D</span><input id="threeD" class="switch" type="checkbox"></label>
+  <div class="colorrow"><span>Couleur tracé</span><div class="colorchips" id="colorChips"></div></div>
+  <div class="actions"><button class="btn dark" id="closeSettingsBtn">Fermer</button><button class="btn red" id="clearBtn">Effacer</button></div>
+</div>
+<div class="sheet" class="sheet top" id="tracesSheet"><h3>Traces enregistrées</h3><p class="sub">Sélectionnez une trace pour l'afficher.</p><div class="list" id="traceList"></div></div>
+<div class="modalWrap" id="stopModal"><div class="modal"><h3>Arrêter l'enregistrement ?</h3><p>Le tracé en cours va être stoppé et sauvegardé localement.</p><div class="inputrow"><input id="recordName" type="text" placeholder="Nom de l'enregistrement"></div><div class="actions"><button class="btn dark" id="cancelStopBtn">Annuler</button><button class="btn red" id="confirmStopBtn">Stop</button></div></div></div>
+<div class="footer"><div class="metrics"><div class="metric"><div class="k">Vitesse</div><div class="v" id="speed">0</div></div><div class="metric"><div class="k">Distance</div><div class="v" id="distance">0.00</div></div><div class="metric"><div class="k">Altitude</div><div class="v" id="altitude">---</div></div><div class="metric"><div class="k">Précision</div><div class="v" id="accuracy">---</div></div><div class="metric"><div class="k">Durée</div><div class="v" id="duration">00:00</div></div></div><div class="status" id="status">Prêt. Deux doigts vers le bas pour incliner la carte.</div></div>
+<script src="https://unpkg.com/maplibre-gl@5.2.0/dist/maplibre-gl.js"></script>
+<script>
+const GOOGLE_MAPS_API_KEY='';
+const DEM_URL='https://demotiles.maplibre.org/terrain-tiles/tiles.json';
+const colorChoices=['#7a4127','#ff4d4f','#27d8ff','#21c55d','#f59e0b','#a855f7'];
+const sourcesMeta=[
+  {group:'Autres',key:'satellite',label:'Satellite',note:'Esri imagerie',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']},
+  {group:'Autres',key:'osm',label:'OpenStreetMap',note:'Plan standard',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png']},
+  {group:'Autres',key:'topo',label:'OpenTopoMap',note:'Relief',tiles:['https://a.tile.opentopomap.org/{z}/{x}/{y}.png','https://b.tile.opentopomap.org/{z}/{x}/{y}.png','https://c.tile.opentopomap.org/{z}/{x}/{y}.png']},
+  {group:'Autres',key:'dark',label:'Sombre',note:'Carto dark',tiles:['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png','https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png','https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png']},
+  {group:'Google',key:'googlePlan',label:'Google Plan',note:'Clé API requise',disabled:!GOOGLE_MAPS_API_KEY},
+  {group:'Google',key:'googleSatellite',label:'Google Satellite',note:'Clé API requise',disabled:!GOOGLE_MAPS_API_KEY},
+  {group:'Google',key:'googleHybrid',label:'Google Hybrid',note:'Clé API requise',disabled:!GOOGLE_MAPS_API_KEY}
+];
+const storageKey='tracegps.saved.v2';
+const traceIcon=document.getElementById('traceIcon');
+const rec=document.getElementById('rec');
+const locateBtn=document.getElementById('locateBtn');
+const autoCenterInput=document.getElementById('autoCenter');
+const threeDInput=document.getElementById('threeD');
+const orientBtn=document.getElementById('orientBtn');
+const els={speed:document.getElementById('speed'),distance:document.getElementById('distance'),altitude:document.getElementById('altitude'),accuracy:document.getElementById('accuracy'),duration:document.getElementById('duration'),status:document.getElementById('status'),mapSheet:document.getElementById('mapSheet'),settingsSheet:document.getElementById('settingsSheet'),tracesSheet:document.getElementById('tracesSheet'),destSheet:document.getElementById('destSheet'),layerList:document.getElementById('layerList'),highAccuracy:document.getElementById('highAccuracy'),colorChips:document.getElementById('colorChips'),traceList:document.getElementById('traceList'),stopModal:document.getElementById('stopModal'),recordName:document.getElementById('recordName'),destInput:document.getElementById('destInput'),destResults:document.getElementById('destResults'),destInfo:document.getElementById('destInfo')};
+let route=[];let totalMeters=0;let watchId=null;let passiveWatchId=null;let timer=null;let startTime=null;let currentColor=localStorage.getItem('tracegps.color')||colorChoices[0];let currentLayer=localStorage.getItem('tracegps.layer')||'osm';let autoCenter=true;let selectedSavedTraceId=null;let currentPoint=null;let destination=null;let threeD=false;let orientationState = 0;let destMarker=null;
+const baseStyle={version:8,glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',sources:{},layers:[{id:'bg',type:'background',paint:{'background-color':'#0c2230'}}]};
+const map=new maplibregl.Map({container:'map',style:baseStyle,center:[4.85,45.75],zoom:13,pitch:0,maxPitch:80,attributionControl:true,dragRotate:true,touchPitch:true,touchZoomRotate:true,bearingSnap:7});
+map.addControl(new maplibregl.AttributionControl({compact:true}));
+map.touchZoomRotate.enable();
+function closeSheets(){els.mapSheet.classList.remove('open');els.settingsSheet.classList.remove('open');els.tracesSheet.classList.remove('open');els.destSheet.classList.remove('open')}
+
+function applyOrientationState() {
+    const btn = document.getElementById('orientBtn');
+    if (orientationState === 0) {
+        btn.textContent = 'N↑';
+        btn.className = 'fab orient free';
+    } else if (orientationState === 1) {
+        btn.textContent = 'N↑';
+        btn.className = 'fab orient';
+        map.easeTo({bearing: 0, duration: 600});
+    } else if (orientationState === 2) {
+        btn.textContent = 'D↑';
+        btn.className = 'fab orient';
+        if (currentPoint && destination) {
+            const brg = bearingDeg(currentPoint, destination);
+            map.easeTo({bearing: brg, duration: 600});
+        }
+    }
+}
+
+document.getElementById('orientBtn').onclick = () => {
+    if (destination) {
+        if (orientationState === 2) orientationState = 1;
+        else if (orientationState === 1) orientationState = 0;
+        else orientationState = 2;
+    } else {
+        if (orientationState === 1) orientationState = 0;
+        else orientationState = 1;
+    }
+    applyOrientationState();
+};
+
+map.on('rotatestart', (e) => {
+    if (e.originalEvent && orientationState !== 0) {
+        orientationState = 0;
+        applyOrientationState();
+    }
+});
+
+function toggleSheet(name){const pool={maps:els.mapSheet,settings:els.settingsSheet,traces:els.tracesSheet,dest:els.destSheet};const target=pool[name];const open=target.classList.contains('open');Object.values(pool).forEach(x=>x.classList.remove('open'));if(!open)target.classList.add('open')}
+function fmtDuration(ms){const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;return h?`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`:`${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`}
+function defaultRecordName(){const d=new Date();const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`}
+function hav(a,b){const R=6371000,rad=d=>d*Math.PI/180;const dLat=rad(b.lat-a.lat),dLng=rad(b.lng-a.lng),la1=rad(a.lat),la2=rad(b.lat);const x=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+function bearingDeg(a,b){const toRad=d=>d*Math.PI/180,toDeg=r=>(r*180/Math.PI+360)%360;const y=Math.sin(toRad(b.lng-a.lng))*Math.cos(toRad(b.lat));const x=Math.cos(toRad(a.lat))*Math.sin(toRad(b.lat))-Math.sin(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.cos(toRad(b.lng-a.lng));return toDeg(Math.atan2(y,x))}
+function updateDuration(){els.duration.textContent=startTime?fmtDuration(Date.now()-startTime):'00:00'}
+let isStopModalOpen = false;
+function updateRec(){
+  if(isStopModalOpen) {
+    rec.classList.remove('on');
+  } else if(watchId!==null){
+    rec.classList.add('on'); rec.innerHTML='<span class="dot"></span>REC';
+  } else if(route.length>0 && isPaused){
+    rec.classList.add('on'); rec.innerHTML='<div class="pauseBars"><div></div><div></div></div>PAUSE';
+  } else {
+    rec.classList.remove('on');
+  }
+}
+function updateLocateButton(){locateBtn.classList.toggle('off',!autoCenter)}
+function updateNorthButton(){northBtn.classList.toggle('on',northUp)}
+function setStatus(){let msg = watchId!==null ? 'Enregistrement en cours' : 'Prêt'; if(destination && currentPoint){const d=hav(currentPoint,destination)/1000; msg += ` · But à ${d.toFixed(2)} km`; } els.status.textContent = msg; }
+function traceGeo(coords){return {type:'Feature',geometry:{type:'LineString',coordinates:coords||route.map(p=>[p.lng,p.lat])}}}
+function ensureLayers(){if(!map.getSource('trace-live')){map.addSource('trace-live',{type:'geojson',data:traceGeo()});map.addLayer({id:'trace-live',type:'line',source:'trace-live',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':currentColor,'line-width':5,'line-opacity':.95}});map.addSource('trace-saved',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'trace-saved',type:'line',source:'trace-saved',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#94a3b8','line-width':4,'line-opacity':.75}});map.addSource('dot',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'dot',type:'circle',source:'dot',paint:{'circle-radius':7,'circle-color':'#27d8ff','circle-stroke-color':'#fff','circle-stroke-width':3}});map.addSource('accuracy',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'accuracy',type:'fill',source:'accuracy',paint:{'fill-color':'#27d8ff','fill-opacity':.12}})}}
+function enable3D(on){threeD=on;if(on){if(!map.getSource('terrainSource')){map.addSource('terrainSource',{type:'raster-dem',url:DEM_URL,tileSize:256})}if(!map.getLayer('hills')){map.addLayer({id:'hills',type:'hillshade',source:'terrainSource',paint:{'hillshade-shadow-color':'#473B24'}},'trace-live')}map.setTerrain({source:'terrainSource',exaggeration:1});map.easeTo({pitch:70,duration:500})}else{if(map.getTerrain())map.setTerrain(null);if(map.getLayer('hills'))map.removeLayer('hills');map.easeTo({pitch:0,duration:500})}}
+function setBase(key){currentLayer=key;localStorage.setItem('tracegps.layer',key);const meta=sourcesMeta.find(x=>x.key===key);if(!meta||meta.disabled||!meta.tiles)return;if(map.getLayer('base'))map.removeLayer('base');if(map.getSource('base'))map.removeSource('base');map.addSource('base',{type:'raster',tiles:meta.tiles,tileSize:256,attribution:meta.label});map.addLayer({id:'base',type:'raster',source:'base'},'trace-live');renderLayers();closeSheets()}
+function renderLayers(){els.layerList.innerHTML='';let lastGroup='';for(const m of sourcesMeta){if(m.group!==lastGroup){const t=document.createElement('div');t.className='groupTitle';t.textContent=m.group;els.layerList.appendChild(t);lastGroup=m.group}const b=document.createElement('button');b.className='option'+(currentLayer===m.key?' active':'')+(m.disabled?' disabled':'');b.innerHTML=`<span class="leftBox"><span>${m.label}</span><span>${m.note||''}</span></span><span class="pill">${m.disabled?'OFF':currentLayer===m.key?'OK':''}</span>`;b.onclick=()=>{if(!m.disabled&&m.tiles)setBase(m.key)};els.layerList.appendChild(b)}}
+function renderColors(){els.colorChips.innerHTML='';for(const c of colorChoices){const b=document.createElement('button');b.className='chip'+(currentColor===c?' active':'');b.style.background=c;b.onclick=()=>{currentColor=c;localStorage.setItem('tracegps.color',c);if(map.getLayer('trace-live'))map.setPaintProperty('trace-live','line-color',c);renderColors()};els.colorChips.appendChild(b)}}
+function updateSavedTraceLayer(){const items=loadSaved();let feats=[];if(selectedSavedTraceId){const one=items.find(x=>x.id===selectedSavedTraceId);if(one)feats=[{type:'Feature',properties:{name:one.name},geometry:{type:'LineString',coordinates:one.coords}}]}else{feats=items.map(x=>({type:'Feature',properties:{name:x.name},geometry:{type:'LineString',coordinates:x.coords}}))}if(map.getSource('trace-saved'))map.getSource('trace-saved').setData({type:'FeatureCollection',features:feats});traceIcon.className=(items.length?'active':'off')}
+function saveCurrentTrace(name){if(route.length<2)return;const items=loadSaved();items.unshift({id:crypto.randomUUID(),name,createdAt:new Date().toISOString(),durationMs:Date.now()-startTime,distanceMeters:totalMeters,color:currentColor,coords:route.map(p=>[p.lng,p.lat])});localStorage.setItem(storageKey,JSON.stringify(items))}
+function loadSaved(){try{return JSON.parse(localStorage.getItem(storageKey)||'[]')}catch(e){return[]}}
+function deleteSaved(id){const items=loadSaved().filter(x=>x.id!==id);localStorage.setItem(storageKey,JSON.stringify(items));if(selectedSavedTraceId===id)selectedSavedTraceId=null;renderTraceList();updateSavedTraceLayer()}
+function zoomToCoords(coords){if(!coords||!coords.length)return;const bounds=coords.reduce((b,c)=>b.extend(c),new maplibregl.LngLatBounds(coords[0],coords[0]));map.fitBounds(bounds,{padding:{top:90,bottom:120,left:30,right:30},duration:500})}
+function renderTraceList(){const items=loadSaved();els.traceList.innerHTML='';if(!items.length){els.traceList.innerHTML='<div class="listMeta">Aucune trace enregistrée.</div>';traceIcon.className='off';return}for(const it of items){const el=document.createElement('div');el.className='listItem';el.innerHTML=`<div class="listTitle">${it.name}</div><div class="listMeta">${(it.distanceMeters/1000).toFixed(2)} km · ${fmtDuration(it.durationMs||0)}</div><div class="listActions"><button class="miniBtn">Afficher</button><button class="miniBtn red">Supprimer</button></div>`;el.querySelector('.miniBtn').onclick=()=>{selectedSavedTraceId=selectedSavedTraceId===it.id?null:it.id;updateSavedTraceLayer();zoomToCoords(it.coords)};el.querySelector('.miniBtn.red').onclick=()=>deleteSaved(it.id);els.traceList.appendChild(el)}traceIcon.className='active'}
+function updateCurrentPositionVisual(p){ensureLayers();map.getSource('dot').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[p.lng,p.lat]}}]});const r=(p.accuracy||0)/111320;const steps=40;const coords=[];for(let i=0;i<=steps;i++){const a=(i/steps)*Math.PI*2;coords.push([p.lng+(r*Math.cos(a))/Math.cos(p.lat*Math.PI/180),p.lat+r*Math.sin(a)])}map.getSource('accuracy').setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Polygon',coordinates:[coords]}}]})}
+function updateMapPoint(p){ensureLayers();map.getSource('trace-live').setData(traceGeo());updateCurrentPositionVisual(p);if(autoCenter && !destination)map.easeTo({center:[p.lng,p.lat],duration:500});if(destination)orientToDestination(false);setStatus()}
+function updateStats(p){els.speed.textContent=String(Math.round(((p.speed??0)>0?p.speed:0)*3.6));els.distance.textContent=(totalMeters/1000).toFixed(2);els.altitude.textContent=(p.altitude??null)!==null?String(Math.round(p.altitude)):'---';els.accuracy.textContent=p.accuracy?`±${Math.round(p.accuracy)}`:'---'}
+function makeDestMarker(){
+  const wrap=document.createElement('div');
+  wrap.className='destMarker';
+  wrap.innerHTML='<div class="destBadge">0.00 km</div><div class="destPinWrap"><div class="destPinCore"></div></div>';
+  return wrap;
+}
+function orientToDestination(animate=true){if(!destination || !currentPoint)return;const distKm=hav(currentPoint,destination)/1000;const bounds=new maplibregl.LngLatBounds([currentPoint.lng,currentPoint.lat],[currentPoint.lng,currentPoint.lat]);bounds.extend([destination.lng,destination.lat]);const brg=bearingDeg(currentPoint,destination);if(destMarker){destMarker.getElement().querySelector('.destBadge').textContent=`${distKm.toFixed(2)} km restant`}if(!northUp){map.fitBounds(bounds,{padding:{top:100,bottom:140,left:40,right:40},bearing:brg,duration:animate?700:0});map.easeTo({bearing:brg,pitch:threeD?70:45,duration:animate?700:0})}else{map.fitBounds(bounds,{padding:{top:100,bottom:140,left:40,right:40},duration:animate?700:0});map.easeTo({bearing:0,pitch:threeD?70:45,duration:animate?700:0})}els.destInfo.textContent=`${destination.label} · ${distKm.toFixed(2)} km`;setStatus()}
+function updateDestinationVisual(){if(destination){if(!destMarker){destMarker=new maplibregl.Marker({element:makeDestMarker(),anchor:'bottom'}).setLngLat([destination.lng,destination.lat]).addTo(map)}else{destMarker.setLngLat([destination.lng,destination.lat])}orientToDestination(false)}else{if(destMarker){destMarker.remove();destMarker=null}els.destInfo.textContent='Aucune destination.';setStatus()}}
+async function searchDestination(){const q=els.destInput.value.trim();if(q.length<2)return;els.destResults.innerHTML='<div class="listMeta">Recherche...</div>';const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=fr&q=${encodeURIComponent(q)}`;try{const res=await fetch(url,{headers:{'Accept':'application/json'}});const data=await res.json();els.destResults.innerHTML='';if(!data.length){els.destResults.innerHTML='<div class="listMeta">Aucun résultat.</div>';return}data.forEach(item=>{const b=document.createElement('button');b.className='resultItem';b.innerHTML=`<div class="listTitle">${item.display_name}</div>`;b.onclick=()=>{destination={lat:parseFloat(item.lat),lng:parseFloat(item.lon),label:item.display_name};updateDestinationVisual();closeSheets()};els.destResults.appendChild(b)})}catch(e){els.destResults.innerHTML='<div class="listMeta">Erreur de recherche.</div>'}}
+function clearDestination(){destination=null;els.destInput.value='';els.destResults.innerHTML='';updateDestinationVisual()}
+function startPassiveWatch(){if(!navigator.geolocation || passiveWatchId!==null)return;passiveWatchId=navigator.geolocation.watchPosition(pos=>{currentPoint={lat:pos.coords.latitude,lng:pos.coords.longitude,accuracy:pos.coords.accuracy,altitude:pos.coords.altitude,speed:pos.coords.speed,timestamp:pos.timestamp};updateCurrentPositionVisual(currentPoint);if(autoCenter && watchId===null && !destination)map.easeTo({center:[currentPoint.lng,currentPoint.lat],duration:500});if(destination)orientToDestination(false);setStatus()},()=>{}, {enableHighAccuracy:true,maximumAge:1000,timeout:15000})}
+function primeCenter(){navigator.geolocation.getCurrentPosition(pos=>{currentPoint={lat:pos.coords.latitude,lng:pos.coords.longitude,accuracy:pos.coords.accuracy};updateCurrentPositionVisual(currentPoint);map.easeTo({center:[currentPoint.lng,currentPoint.lat],zoom:17,duration:500});setStatus()},()=>{els.status.textContent='Position initiale indisponible'},{enableHighAccuracy:true,maximumAge:1000,timeout:10000})}
+function startTracking(){closeSheets();if(!navigator.geolocation||watchId!==null)return;if(!startTime)startTime=Date.now();if(!timer){updateDuration();timer=setInterval(updateDuration,1000)}els.status.textContent='Recherche GPS...';watchId=navigator.geolocation.watchPosition(pos=>{const p={lat:pos.coords.latitude,lng:pos.coords.longitude,accuracy:pos.coords.accuracy,altitude:pos.coords.altitude,speed:pos.coords.speed,timestamp:pos.timestamp};currentPoint=p;const prev=route[route.length-1];if(prev){const step=hav(prev,p);if(step>=2)totalMeters+=step}route.push(p);updateMapPoint(p);updateStats(p);if(route.length===1 && !destination)map.easeTo({center:[p.lng,p.lat],zoom:17,duration:500});updateRec();setStatus()},err=>{els.status.textContent=({1:'Autorisation refusée',2:'Position indisponible',3:'Délai dépassé'})[err.code]||'Erreur GPS';pauseTracking(false)},{enableHighAccuracy:!!els.highAccuracy.checked,maximumAge:1000,timeout:15000});updateRec()}
+function pauseTracking(resetStatus=true){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}if(timer){clearInterval(timer);timer=null}if(resetStatus)setStatus();updateRec()}
+function openStopModal(){if(!route.length){pauseTracking(true);return}els.recordName.value=defaultRecordName();els.stopModal.classList.add('open'); isStopModalOpen = true; updateRec();}
+function confirmStop(){saveCurrentTrace(els.recordName.value.trim()||defaultRecordName());pauseTracking(false);route=[];totalMeters=0;startTime=null;updateDuration();els.speed.textContent='0';els.distance.textContent='0.00';els.altitude.textContent='---';els.accuracy.textContent='---';els.stopModal.classList.remove('open');isStopModalOpen = false;if(map.getSource('trace-live'))map.getSource('trace-live').setData(traceGeo());renderTraceList();updateSavedTraceLayer();setStatus()}
+function clearTrack(){pauseTracking(false);route=[];totalMeters=0;startTime=null;updateDuration();els.speed.textContent='0';els.distance.textContent='0.00';els.altitude.textContent='---';els.accuracy.textContent='---';if(map.getSource('trace-live'))map.getSource('trace-live').setData(traceGeo());setStatus();closeSheets()}
+function locateMe(){autoCenter=!autoCenter;autoCenterInput.checked=autoCenter;updateLocateButton();if(autoCenter&&currentPoint&&!destination)map.easeTo({center:[currentPoint.lng,currentPoint.lat],duration:500});if(autoCenter&&destination)orientToDestination(true)}
+autoCenterInput.addEventListener('change',e=>{autoCenter=e.target.checked;updateLocateButton();if(autoCenter&&currentPoint&&!destination)map.easeTo({center:[currentPoint.lng,currentPoint.lat],duration:500});if(autoCenter&&destination)orientToDestination(true)});
+threeDInput.addEventListener('change',e=>enable3D(e.target.checked));
+document.getElementById('destBtn').onclick=()=>toggleSheet('dest');document.getElementById('searchDestBtn').onclick=searchDestination;document.getElementById('clearDestBtn').onclick=clearDestination;els.destInput.addEventListener('keydown',e=>{if(e.key==='Enter')searchDestination()});document.getElementById('playBtn').onclick=startTracking;document.getElementById('pauseBtn').onclick=()=>pauseTracking(true);document.getElementById('stopBtn').onclick=openStopModal;document.getElementById('traceBtn').onclick=()=>{renderTraceList();updateSavedTraceLayer();toggleSheet('traces')};document.getElementById('settingsBtn').onclick=()=>toggleSheet('settings');document.getElementById('mapsBtn').onclick=()=>toggleSheet('maps');document.getElementById('locateBtn').onclick=locateMe;document.getElementById('closeSettingsBtn').onclick=closeSheets;document.getElementById('clearBtn').onclick=clearTrack;document.getElementById('cancelStopBtn').onclick=()=>{els.stopModal.classList.remove('open'); isStopModalOpen = false; updateRec();};document.getElementById('confirmStopBtn').onclick=confirmStop;els.stopModal.onclick=e=>{if(e.target===els.stopModal){els.stopModal.classList.remove('open'); isStopModalOpen = false; updateRec();}};map.on('click',closeSheets);document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeSheets();els.stopModal.classList.remove('open')}});window.addEventListener('beforeunload',()=>{if(watchId!==null)navigator.geolocation.clearWatch(watchId);if(passiveWatchId!==null)navigator.geolocation.clearWatch(passiveWatchId);if(timer)clearInterval(timer)});
+map.on('load',()=>{ensureLayers();setBase(currentLayer in Object.fromEntries(sourcesMeta.map(x=>[x.key,1]))?currentLayer:'osm');renderLayers();renderColors();updateRec();updateLocateButton();updateNorthButton();renderTraceList();updateSavedTraceLayer();updateDestinationVisual();primeCenter();startPassiveWatch()});
+</script>
+</body>
+</html>
