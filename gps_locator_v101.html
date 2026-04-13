@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <title>GPS</title>
+  <link  rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+
+// ── 3D tilt button ────────────────────────────────────────────
+
+// ── Version menu ──────────────────────────────────────────────
+function toggleVerMenu(){
+  const m=document.getElementById('ver-menu');
+  const b=document.getElementById('ver-badge');
+  const isOpen=m.classList.contains('open');
+  m.classList.toggle('open',!isOpen);
+  b.classList.toggle('open',!isOpen);
+}
+
+// ── RAF bearing interpolation (60 fps) — fluidifie la rotation boussole ──────
+(function bearingLoop(){
+  requestAnimationFrame(bearingLoop);
+  if(!compassMode) return;
+
+  // Chemin le plus court entre smoothBrg et targetBrg (gère le wrap 0°/360°)
+  let delta = ((targetBrg - smoothBrg + 540) % 360) - 180;
+  if(Math.abs(delta) < 0.05) return; // déjà arrivé, rien à faire
+
+  smoothBrg = (smoothBrg + delta * LERP_B + 360) % 360;
+  setBearing(smoothBrg);
+
+  // Recentrer après rotation (évite que le marqueur dérive)
+  if(userLL) map.panTo(userLL, {animate:false});
+})();
+
+// ── Copy URL ──────────────────────────────────────────────────
+document.getElementById('btn-copy').addEventListener('click', async () => {
+  const url = window.location.href;
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('🔗 URL copiée !');
+  } catch {
+    const el = document.createElement('input');
+    el.value = url; el.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(el); el.focus(); el.select();
+    document.execCommand('copy'); document.body.removeChild(el);
+    toast('🔗 URL copiée !');
+  }
+});
+</script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%;width:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#87ceeb;overflow:hidden}
+
+    /* Banner */
+    #banner{
+      position:fixed;top:0;left:0;right:0;z-index:900;
+      background:rgba(12,12,28,.93);
+      backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+      border-bottom:1px solid rgba(255,255,255,.07);
+      padding:calc(env(safe-area-inset-top,0px) + 4px) 14px 9px;
+    }
+    #b-inner{display:flex;align-items:center;gap:12px}
+    #b-icon{width:40px;height:40px;border-radius:12px;flex-shrink:0;font-size:18px;background:linear-gradient(135deg,#667eea,#764ba2);display:flex;align-items:center;justify-content:center}
+    #b-icon.spin{animation:sp 1.5s ease-in-out infinite}
+    @keyframes sp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.88)}}
+    #b-txt{flex:1;min-width:0}
+    #b-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667eea;margin-bottom:2px}
+    #b-street{font-size:15px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #b-city{font-size:12px;color:rgba(255,255,255,.5);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+
+    #banner-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+    #btn-copy{
+      width:30px;height:30px;border-radius:8px;flex-shrink:0;
+      background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;-webkit-tap-highlight-color:transparent;
+      transition:background .15s;
+    }
+    #btn-copy:active{background:rgba(102,126,234,.3)}
+
+    /* Map clip + map */
+    #map-clip{
+      position:fixed;top:0;left:0;right:0;bottom:0;overflow:visible;z-index:1;
+      isolation:isolate; /* contient le stacking context 3D */
+    }
+    #map-tilt{
+      position:absolute;top:-60vh;left:0;right:0;height:160vh;
+      transform-origin:50% 68%;
+      transform-style:flat;
+    }
+    #map{position:absolute;transform-origin:50% 50%}/* sized by JS */
+
+    /* FABs */
+    .fab{
+      position:fixed;z-index:2000;width:52px;height:52px;border-radius:16px;
+      background:rgba(12,12,28,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+      border:1.5px solid rgba(255,255,255,.11);box-shadow:0 4px 20px rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;font-size:22px;user-select:none;-webkit-tap-highlight-color:transparent;
+      transition:transform .12s,background .12s;
+    }
+    .fab:active{transform:scale(.9);background:rgba(102,126,234,.4)}
+    #btn-c{bottom:calc(env(safe-area-inset-bottom,0px) + 28px);right:20px}
+    #btn-l{bottom:calc(env(safe-area-inset-bottom,0px) + 92px);right:20px}
+    #btn-k{bottom:calc(env(safe-area-inset-bottom,0px) + 156px);right:20px;padding:0;overflow:hidden}
+    #btn-k.on{border-color:rgba(255,80,80,.5);background:rgba(200,30,30,.12)}
+
+    /* Layer panel */
+    #lpanel{
+      position:fixed;z-index:2010;max-height:min(60vh,520px);overflow-y:auto;overscroll-behavior:contain;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 155px);right:16px;
+      background:rgba(12,12,28,.96);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+      border:1px solid rgba(255,255,255,.09);border-radius:20px;padding:10px;
+      min-width:175px;display:none;flex-direction:column;gap:6px;box-shadow:0 8px 32px rgba(0,0,0,.5);
+    }
+    #lpanel.open{display:flex}
+    #ver-menu::-webkit-scrollbar{width:8px}
+    #ver-menu::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:8px}
+    #ver-menu::-webkit-scrollbar-track{background:transparent}
+
+    .lp-title{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.3);padding:2px 8px 4px}
+    .li{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;cursor:pointer;border:1.5px solid transparent;transition:background .1s,border-color .1s;-webkit-tap-highlight-color:transparent}
+    .li:active{background:rgba(102,126,234,.2)}
+    .li.on{background:rgba(102,126,234,.17);border-color:rgba(102,126,234,.45)}
+    .li-ico{width:36px;height:36px;border-radius:8px;flex-shrink:0;border:1px solid rgba(255,255,255,.08);font-size:20px;display:flex;align-items:center;justify-content:center}
+    .li-name{font-size:13px;font-weight:600;color:#fff}
+    .li-desc{font-size:10px;color:rgba(255,255,255,.38);margin-top:1px}
+    .li-chk{font-size:14px;opacity:0;transition:opacity .1s}
+    .li.on .li-chk{opacity:1}
+
+    /* Toast */
+    #toast{
+      position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 228px);left:50%;transform:translateX(-50%);
+      background:rgba(12,12,28,.93);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+      border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:9px 18px;
+      font-size:13px;color:#fff;white-space:nowrap;z-index:970;opacity:0;pointer-events:none;transition:opacity .3s;
+    }
+    #toast.show{opacity:1}
+
+    /* GPS marker */
+    .gw{display:flex;flex-direction:column;align-items:center;transform-origin:center 70%}
+    .ga{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:13px solid #667eea;opacity:0;transition:opacity .4s;margin-bottom:-1px;filter:drop-shadow(0 0 5px rgba(102,126,234,.9))}
+    .ga.v{opacity:1}
+    .gd{width:22px;height:22px;background:#667eea;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(102,126,234,.3),0 2px 8px rgba(0,0,0,.5);animation:dp 2.5s ease-in-out infinite}
+    @keyframes dp{0%,100%{box-shadow:0 0 0 4px rgba(102,126,234,.3),0 2px 8px rgba(0,0,0,.5)}50%{box-shadow:0 0 0 10px rgba(102,126,234,.07),0 2px 8px rgba(0,0,0,.5)}}
+    .ac{border:2px dashed rgba(102,126,234,.45)!important;background:rgba(102,126,234,.05)!important}
+
+
+    /* Version badge — inline dans la bannière */
+    #ver-badge{
+      flex-shrink:0;
+      font-size:10px;font-weight:700;letter-spacing:.5px;
+      color:rgba(255,255,255,.4);background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.12);border-radius:8px;
+      padding:4px 10px;cursor:pointer;user-select:none;
+      -webkit-tap-highlight-color:transparent;
+      transition:background .15s,color .15s;white-space:nowrap;
+    }
+    #ver-badge:active,#ver-badge.open{background:rgba(102,126,234,.2);color:#a0b4ff;border-color:rgba(102,126,234,.4)}
+
+    /* Version menu */
+    #ver-menu{
+      position:fixed;top:0;left:0;right:0;bottom:0;z-index:1100;
+      background:rgba(8,8,20,.97);
+      backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);
+      padding:calc(env(safe-area-inset-top,0px) + 16px) 0 env(safe-area-inset-bottom,24px);
+      overflow-y:auto;display:none;flex-direction:column;align-items:stretch;
+      animation:slideUp .28s cubic-bezier(.32,0,.67,0) reverse;
+    }
+    #ver-menu.open{display:flex;animation:slideUp .28s cubic-bezier(.33,1,.68,1)}
+    @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+
+    .vm-title{font-size:26px;font-weight:700;color:#fff;text-align:center;padding:8px 24px 2px}
+    .vm-version{font-size:13px;color:#667eea;text-align:center;margin-bottom:8px;font-weight:600}
+    .vm-divider{height:1px;background:rgba(255,255,255,.07);margin:10px 20px}
+    .vm-section{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.3);padding:10px 24px 4px}
+    .vm-item{display:flex;align-items:center;gap:14px;padding:11px 24px}
+    .vm-ico{font-size:24px;width:40px;text-align:center;flex-shrink:0}
+    .vm-iname{font-size:14px;font-weight:600;color:#fff}
+    .vm-idesc{font-size:12px;color:rgba(255,255,255,.45);margin-top:2px}
+    .vm-close{
+      margin:20px 24px 8px;padding:15px;border-radius:16px;
+      background:rgba(102,126,234,.18);border:1px solid rgba(102,126,234,.3);
+      text-align:center;color:#a0b4ff;font-size:15px;font-weight:600;
+      cursor:pointer;-webkit-tap-highlight-color:transparent;
+      transition:background .15s;
+    }
+    .vm-close:active{background:rgba(102,126,234,.35)}
+
+    /* Leaflet */
+    .leaflet-control-zoom{display:none!important}
+    .leaflet-control-attribution{font-size:9px!important;background:rgba(0,0,0,.5)!important;color:rgba(255,255,255,.35)!important;border-radius:4px 0 0 0}
+    .leaflet-control-attribution a{color:rgba(255,255,255,.45)!important}
+  </style>
+</head>
+<body>
+
+<div id="banner">
+  <div id="b-inner">
+    <div id="b-icon" class="spin">📍</div>
+    <div id="b-txt">
+      <div id="b-label">Votre position</div>
+      <div id="b-street">Localisation en cours…</div>
+      <div id="b-city">Veuillez patienter</div>
+    </div>
+    <div id="banner-right"><button id="btn-copy" title="Copier l'URL"><svg viewBox="0 0 22 22" width="17" height="17" fill="none" stroke="rgba(255,255,255,.6)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="1" width="13" height="13" rx="2.5"/><path d="M4 7H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1"/></svg></button><div id="ver-badge" onclick="toggleVerMenu()">v101</div></div>
+  </div>
+</div>
+
+<!-- Version menu -->
+<div id="ver-menu">
+  <div class="vm-section">Paramètres</div>
+  <div id="dbg-panel" style="font-family:monospace;font-size:11px;padding:6px 10px;display:flex;flex-direction:column;gap:3px;color:rgba(255,255,255,.75)"></div>
+  <div class="vm-divider"></div>
+  <div class="vm-section">Fonctionnalités</div>
+  <div class="vm-item"><span class="vm-ico">📍</span><div><div class="vm-iname">Localisation GPS</div><div class="vm-idesc">Haute précision, mise à jour continue</div></div></div>
+  <div class="vm-item"><span class="vm-ico">🏠</span><div><div class="vm-iname">Adresse en temps réel</div><div class="vm-idesc">Via OpenStreetMap Nominatim</div></div></div>
+  <div class="vm-item"><span class="vm-ico">🧭</span><div><div class="vm-iname">Orientation automatique</div><div class="vm-idesc">Cap GPS + boussole (si autorisée)</div></div></div>
+  <div class="vm-item"><span class="vm-ico">🗺️</span><div><div class="vm-iname">6 styles de carte</div><div class="vm-idesc">Nuit · Jour · OSM · Topo · Satellite · Vélo</div></div></div>
+  <div class="vm-divider"></div>
+  <div class="vm-section">Sources</div>
+  <div class="vm-item"><span class="vm-ico">🛰️</span><div><div class="vm-iname">Tuiles</div><div class="vm-idesc">CARTO · OSM · ESRI · CyclOSM</div></div></div>
+  <div class="vm-item"><span class="vm-ico">🔓</span><div><div class="vm-iname">Open source & gratuit</div><div class="vm-idesc">Leaflet.js 1.9.4 · Nominatim</div></div></div>
+  <div class="vm-close" onclick="toggleVerMenu()">Fermer</div>
+</div>
+
+<div id="map-clip"><div id="map-tilt"><div id="map"></div></div></div>
+
+<button class="fab" id="btn-c" title="Zoom rue">🎯</button>
+<button class="fab" id="btn-l">🗺️</button>
+
+<button id="btn-tilt" class="fab" title="Mode inclinaison" style="bottom:calc(env(safe-area-inset-bottom,0px) + 220px);right:20px;font-size:13px;font-weight:700;letter-spacing:.3px;;display:none">📱</button>
+<button class="fab" id="btn-k">
+  <svg id="csvg" viewBox="0 0 44 44" width="34" height="34" style="transform-origin:center;transition:transform .35s cubic-bezier(.25,.8,.25,1)">
+    <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,.13)" stroke-width="1.5"/>
+    <line x1="22" y1="4"  x2="22" y2="8"  stroke="rgba(255,255,255,.45)" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="40" y1="22" x2="36" y2="22" stroke="rgba(255,255,255,.18)" stroke-width="1" stroke-linecap="round"/>
+    <line x1="22" y1="40" x2="22" y2="36" stroke="rgba(255,255,255,.18)" stroke-width="1" stroke-linecap="round"/>
+    <line x1="4"  y1="22" x2="8"  y2="22" stroke="rgba(255,255,255,.18)" stroke-width="1" stroke-linecap="round"/>
+    <polygon points="22,5 19,22 22,19 25,22"  fill="#ff4757"/>
+    <polygon points="22,39 19,22 22,25 25,22" fill="rgba(255,255,255,.45)"/>
+    <circle cx="22" cy="22" r="2.5" fill="#fff"/>
+    <text x="22" y="16" text-anchor="middle" fill="#ff4757" font-size="6" font-weight="700" font-family="-apple-system,sans-serif">N</text>
+  </svg>
+</button>
+
+<div id="lpanel"><div class="lp-title">Style de carte</div></div>
+<div id="toast"></div>
+
+<script>
+// ── Tile sources ──────────────────────────────────────────────
+const LAYERS=[
+  {id:'dark', name:'Nuit',      desc:'CARTO Dark',    e:'🌑',
+   url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+   attr:'© <a href="https://carto.com/">CARTO</a> © OSM',sub:'abcd',max:20},
+  {id:'light',name:'Jour',      desc:'CARTO Positron',e:'☀️',
+   url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+   attr:'© <a href="https://carto.com/">CARTO</a> © OSM',sub:'abcd',max:20},
+  {id:'osm',  name:'Standard',  desc:'OpenStreetMap', e:'🗾',
+   url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+   attr:'© <a href="https://www.openstreetmap.org/copyright">OSM</a>',sub:'',max:19},
+  {id:'topo', name:'Topo',      desc:'OpenTopoMap',   e:'⛰️',
+   url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+   attr:'© OpenTopoMap',sub:'abc',max:17},
+  {id:'sat',  name:'Satellite', desc:'ESRI Imagery',  e:'🛰️',
+   url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+   attr:'© Esri',sub:'',max:19},
+  {id:'cycle',name:'Vélo',      desc:'CyclOSM',       e:'🚴',
+   url:'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+   attr:'© OSM contributors',sub:'abc',max:20},
+];
+
+// ── Size map container to cover any rotation ──────────────────
+// map must be larger than the diagonal of the screen
+const W = window.innerWidth, H = window.innerHeight;
+const DIAG = Math.ceil(Math.hypot(W, H));
+const MAP_SIZE = DIAG * 4 + 200; // aire virtuelle doublée pour couverture en tilt
+const mapEl = document.getElementById('map');
+mapEl.style.width  = MAP_SIZE + 'px';
+mapEl.style.height = MAP_SIZE + 'px';
+mapEl.style.left   = Math.round((W - MAP_SIZE) / 2) + 'px';
+mapEl.style.top    = Math.round(H * 1.25 - MAP_SIZE / 2) + 'px'; // GPS à 65% de l'écran (compense -60vh)
+
+// ── Init Leaflet ──────────────────────────────────────────────
+const map = L.map('map', {
+  zoomControl:false, attributionControl:true,
+  tap:true, tapTolerance:15,
+}).setView([46,7.5], 5);
+
+map.invalidateSize();
+
+let curId = 'osm';
+let tile = mkTile('osm').addTo(map);
+
+function mkTile(id){
+  const l=LAYERS.find(x=>x.id===id);
+  const o={attribution:l.attr,maxZoom:l.max};
+  if(l.sub)o.subdomains=l.sub;
+  return L.tileLayer(l.url,o);
+}
+
+// ── Layer panel ───────────────────────────────────────────────
+const lpanel = document.getElementById('lpanel');
+LAYERS.forEach(l=>{
+  const d=document.createElement('div');
+  d.className='li'+(l.id===curId?' on':'');
+  d.dataset.id=l.id;
+  d.innerHTML=`<div class="li-ico">${l.e}</div><div><div class="li-name">${l.name}</div><div class="li-desc">${l.desc}</div></div><div class="li-chk">✓</div>`;
+  d.addEventListener('click',()=>{
+    if(l.id===curId){closeLP();return;}
+    map.removeLayer(tile);
+    tile=mkTile(l.id).addTo(map); tile.bringToBack();
+    curId=l.id;
+    lpanel.querySelectorAll('.li').forEach(e=>e.classList.toggle('on',e.dataset.id===l.id));
+    closeLP();
+  });
+  lpanel.appendChild(d);
+});
+document.getElementById('btn-l').addEventListener('click',e=>{e.stopPropagation();lpanel.classList.contains('open')?closeLP():openLP();});
+function openLP(){lpanel.classList.add('open')}
+function closeLP(){lpanel.classList.remove('open')}
+map.on('click',closeLP); map.on('dragstart',closeLP);
+
+// ── Toast ─────────────────────────────────────────────────────
+let toastT=null;
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600);
+}
+
+// ── State ─────────────────────────────────────────────────────
+let userLL=null, isCentered=true; // always true now
+let firstFix=false;
+let mkr=null, accC=null;
+let compassMode = false;
+let curBearing=0;
+let lastHeading=null;
+let tiltAngle=0;          // 0=plat, 45=incliné
+const PERSPECTIVE=1400;   // px
+let targetBrg=0, smoothBrg=0;   // bearing interpolation
+const LERP_B=0.10;               // 0=immobile, 1=instantané
+
+// dragging no longer unlocks center
+
+// ── Map rotation (pure CSS on pre-sized div) ──────────────────
+const tiltEl=document.getElementById('map-tilt');
+function applyTransform(bearing,tilt){
+  // Couche tilt (3D) — séparée du cap
+  tiltEl.style.transform = tilt===0 ? 'none'
+    : 'perspective('+PERSPECTIVE+'px) rotateX('+tilt+'deg)';
+  // Couche cap (2D) — sur #map uniquement
+  mapEl.style.transform='rotate('+(-bearing)+'deg)';
+  document.getElementById('csvg').style.transform='rotate('+bearing+'deg)';
+}
+function setBearing(deg){ curBearing=deg; applyTransform(deg,tiltAngle); }
+
+// ── Marker ────────────────────────────────────────────────────
+const myIcon = L.divIcon({
+  className:'',
+  html:'<div class="gw" id="gw"><div class="ga" id="ga"></div><div class="gd"></div></div>',
+  iconSize:[22,35], iconAnchor:[11,23],
+});
+
+// Arrow CSS rotation: rotate(heading) so after map rotation(-bearing) it points up ✓
+function setArrow(heading){
+  const el=document.getElementById('ga');
+  const wrap=document.getElementById('gw');
+  if(!el||!wrap)return;
+  if(heading==null){el.classList.remove('v');return;}
+  el.classList.add('v');
+  wrap.style.transform='rotate('+heading+'deg)';
+}
+
+// ── Compass button ────────────────────────────────────────────
+document.getElementById('btn-k').addEventListener('click',()=>{
+  if(!compassMode){
+    compassMode=true;
+    document.getElementById('btn-k').classList.add('on');
+    tiltMode = 'finger';
+    tiltAngle = 0;
+    fingerTilt = 0;
+    fingerTouchY = 0;
+    fingerTiltReady = false;
+    applyTransform(curBearing, 0);
+    const btnTilt = document.getElementById('btn-tilt');
+    if(btnTilt){ btnTilt.style.display = ''; btnTilt.textContent = '👆'; btnTilt.classList.remove('active'); }
+    map.dragging.disable();
+    map.options.touchZoom = 'center';
+    map.options.scrollWheelZoom = 'center';
+
+    if(typeof DeviceOrientationEvent!=='undefined'){
+      if(typeof DeviceOrientationEvent.requestPermission==='function'){
+        DeviceOrientationEvent.requestPermission()
+          .then(r=>{ if(r==='granted') window.addEventListener('deviceorientation',onOrient,true); })
+          .catch(()=>{});
+      } else {
+        window.addEventListener('deviceorientation',onOrient,true);
+      }
+    }
+    toast('🧭 Cap activé — bouge pour orienter la carte');
+  } else {
+    compassMode=false;
+    document.getElementById('btn-k').classList.remove('on');
+    const btnTilt = document.getElementById('btn-tilt');
+    if(btnTilt) btnTilt.style.display = 'none';
+    fingerTiltReady = false;
+    map.dragging.enable();
+    map.options.touchZoom = true;
+    map.options.scrollWheelZoom = true;
+    tiltAngle = 0;
+    applyTransform(0, 0);
+    map.touchZoom.enable();
+    map.doubleClickZoom.enable();
+    targetBrg=0; smoothBrg=0; setBearing(0);
+    setArrow(lastHeading);
+    toast('⬆️ Nord en haut rétabli');
+  }
+});
+
+
+function syncButtonsState(){
+  const btnK = document.getElementById('btn-k');
+  const btnTilt = document.getElementById('btn-tilt');
+  if(btnK) btnK.classList.toggle('on', compassMode);
+  if(btnTilt) btnTilt.style.display = compassMode ? '' : 'none';
+  if(btnTilt && compassMode){
+    btnTilt.textContent = tiltMode === 'sensor' ? '📱' : '👆';
+  }
+}
+
+
+function onOrientUnified(e){
+  const now = Date.now();
+  if(now - lastOT < 30) return;
+  lastOT = now;
+
+  let h = null;
+  if(e.webkitCompassHeading != null) h = e.webkitCompassHeading;
+  else if(e.alpha != null) h = (360 - e.alpha + 360) % 360;
+  if(h != null){
+    lastHeading = h;
+    setArrow(h);
+    if(compassMode){
+      targetBrg = h;
+      smoothBrg = h;
+      setBearing(h);
+      applyTransform(h, tiltAngle);
+    }
+  }
+
+  if(compassMode && tiltMode === 'sensor' && e.beta != null){
+    const beta = Math.max(0, Math.min(90, e.beta));
+    const newTilt = Math.round(Math.min(60, beta * 60 / 90));
+    if(newTilt !== tiltAngle){
+      tiltAngle = newTilt;
+      fingerTilt = newTilt;
+      applyTransform(curBearing, tiltAngle);
+    }
+  }
+}
+
+
+async function initCompassStartup(){
+  try{
+    if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+      const p = await DeviceOrientationEvent.requestPermission();
+      if(p === 'granted') window.addEventListener('deviceorientation', onOrientUnified, true);
+    } else {
+      window.addEventListener('deviceorientation', onOrientUnified, true);
+    }
+  } catch(e) {}
+  syncButtonsState();
+}
+
+initCompassStartup();
+
+// ── Device orientation ────────────────────────────────────────
+let lastOT=0;
+function onOrient(e){
+  const now=Date.now(); if(now-lastOT<30)return; lastOT=now;
+
+  // Cap (heading)
+  let h=null;
+  if(e.webkitCompassHeading!=null) h=e.webkitCompassHeading;
+  else if(e.alpha!=null)           h=(360-e.alpha+360)%360;
+  if(h!=null){
+    lastHeading=h;
+    setArrow(h);
+    if(compassMode) targetBrg=h;
+  }
+
+  // Inclinaison physique du téléphone → tiltAngle (seulement si mode sensor)
+  if(compassMode && tiltMode === 'sensor' && e.beta!=null){
+    const beta = Math.max(0, e.beta);
+    const newTilt = Math.round(Math.min(60, beta * 60 / 90) / 5) * 5;
+    if(newTilt !== tiltAngle){
+      tiltAngle = newTilt;
+      applyTransform(curBearing, tiltAngle);
+    }
+  }
+}
+
+// ── Recenter ──────────────────────────────────────────────────
+document.getElementById('btn-c').addEventListener('click',()=>{
+  if(userLL){map.setView(userLL,17,{animate:true});} // reset zoom to street level
+});
+
+// ── Nominatim ─────────────────────────────────────────────────
+let lastGT=0;
+async function geocode(lat,lon){
+  const now=Date.now(); if(now-lastGT<3000)return; lastGT=now;
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/reverse?lat='+lat+'&lon='+lon+'&format=json&addressdetails=1&accept-language=fr');
+    const d=await r.json(), a=d.address||{};
+    const street=a.road||a.pedestrian||a.footway||a.path||a.neighbourhood||'(voie inconnue)';
+    const num=a.house_number?a.house_number+' ':'';
+    const city=a.city||a.town||a.village||a.municipality||'';
+    const cp=a.postcode?' '+a.postcode:'';
+    document.getElementById('b-street').textContent=num+street;
+    document.getElementById('b-city').textContent=city+cp+(a.country?', '+a.country:'');
+    document.getElementById('b-icon').textContent='📍';
+    document.getElementById('b-icon').classList.remove('spin');
+  }catch{
+    document.getElementById('b-street').textContent='Adresse indisponible';
+    document.getElementById('b-city').textContent=lat.toFixed(5)+', '+lon.toFixed(5);
+  }
+}
+
+// ── Geolocation ───────────────────────────────────────────────
+function onPos(pos){
+  const{latitude:lat,longitude:lng,accuracy,heading:gh,speed:spd}=pos.coords;
+  userLL=L.latLng(lat,lng);
+
+  if(!mkr){
+    mkr=L.marker(userLL,{icon:myIcon,zIndexOffset:999}).addTo(map);
+  } else {
+    mkr.setLatLng(userLL);
+  }
+  if(accC)map.removeLayer(accC);
+  accC=L.circle(userLL,{radius:accuracy,className:'ac',interactive:false}).addTo(map);
+
+  // Always keep GPS position centered
+  if(!firstFix){
+    // First fix: set appropriate zoom level
+    const z=accuracy<30?18:accuracy<100?17:accuracy<500?15:13;
+    map.setView(userLL,z,{animate:true});
+    firstFix=true;
+    // On first fix, if heading is available, show arrow
+    if(gh!=null&&spd!=null&&spd>0.3){
+      lastHeading=gh;
+      if(compassMode) targetBrg=gh;
+      setArrow(gh);
+    }
+  } else {
+    // Subsequent fixes: pan smoothly, keep current zoom
+    map.panTo(userLL,{animate:true,duration:0.5,easeLinearity:0.5});
+  }
+
+
+  if(gh!=null&&spd!=null&&spd>0.3){
+    lastHeading=gh;
+    if(compassMode){ targetBrg=gh; setArrow(gh); }
+    else setArrow(gh);
+  }
+  geocode(lat,lng);
+}
+
+function onErr(e){
+  document.getElementById('b-street').textContent='GPS non disponible';
+  document.getElementById('b-icon').textContent='⚠️';
+  document.getElementById('b-icon').classList.remove('spin');
+  document.getElementById('b-city').textContent=
+    e.code===1?'Autorisez la localisation dans Réglages > Safari':
+    e.code===2?'Signal GPS indisponible':'Délai dépassé, réessayez';
+}
+
+if('geolocation' in navigator){
+  navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:15000});
+} else {
+  document.getElementById('b-street').textContent='GPS non supporté';
+  document.getElementById('b-icon').textContent='❌';
+  document.getElementById('b-icon').classList.remove('spin');
+}
+
+
+// ── 3D tilt button ────────────────────────────────────────────
+
+// ── Version menu ──────────────────────────────────────────────
+function toggleVerMenu(){
+  const m=document.getElementById('ver-menu');
+  const b=document.getElementById('ver-badge');
+  const isOpen=m.classList.contains('open');
+  m.classList.toggle('open',!isOpen);
+  b.classList.toggle('open',!isOpen);
+}
+
+// ── RAF bearing interpolation (60 fps) — fluidifie la rotation boussole ──────
+(function bearingLoop(){
+  requestAnimationFrame(bearingLoop);
+  if(!compassMode) return;
+
+  // Chemin le plus court entre smoothBrg et targetBrg (gère le wrap 0°/360°)
+  let delta = ((targetBrg - smoothBrg + 540) % 360) - 180;
+  if(Math.abs(delta) < 0.05) return; // déjà arrivé, rien à faire
+
+  smoothBrg = (smoothBrg + delta * LERP_B + 360) % 360;
+  setBearing(smoothBrg);
+
+  // Recentrer après rotation (évite que le marqueur dérive)
+  if(userLL) map.panTo(userLL, {animate:false});
+})();
+
+// ── Copy URL ──────────────────────────────────────────────────
+document.getElementById('btn-copy').addEventListener('click', async () => {
+  const url = window.location.href;
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('🔗 URL copiée !');
+  } catch {
+    const el = document.createElement('input');
+    el.value = url; el.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(el); el.focus(); el.select();
+    document.execCommand('copy'); document.body.removeChild(el);
+    toast('🔗 URL copiée !');
+  }
+});
+
+// Compass tilt: 1‑finger, 0–70° by 5°
+
+
+// ── Toggle tilt mode : 'sensor' | 'finger' ─────────────────────
+let tiltMode = 'finger'; // par défaut : doigt en mode boussole
+function updateTiltButtonVisibility(){
+  const btnTilt = document.getElementById('btn-tilt');
+  if(!btnTilt) return;
+  btnTilt.style.display = compassMode ? '' : 'none';
+}
+
+
+document.getElementById('btn-tilt').addEventListener('click', () => {
+  if(!compassMode) return;
+  tiltMode = tiltMode === 'sensor' ? 'finger' : 'sensor';
+  const btn = document.getElementById('btn-tilt');
+  if(tiltMode === 'sensor'){
+    btn.textContent = '📱';
+    btn.classList.add('active');
+    toast('Inclinaison : capteur téléphone');
+  } else {
+    btn.textContent = '👆';
+    btn.classList.remove('active');
+    toast('Inclinaison : doigt ↑↓');
+  }
+  syncButtonsState();
+  updateTiltButtonVisibility();
+});
+
+// ── Finger tilt (mode doigt) ────────────────────────────────────
+let fingerTilt = 0;
+let fingerTouchY = 0;
+let fingerTiltReady = false;
+const FINGER_TILT_STEP = 5;
+const FINGER_THRESHOLD = 10;
+
+document.addEventListener('touchstart', e => {
+  if(compassMode && tiltMode === 'finger' && e.touches.length === 1){
+    fingerTouchY = e.touches[0].pageY;
+    if(!fingerTiltReady){
+      fingerTilt = 0;
+      tiltAngle = 0;
+      applyTransform(curBearing, 0);
+      fingerTiltReady = true;
+    }
+  }
+});
+
+document.addEventListener('touchmove', e => {
+  if(compassMode && tiltMode === 'finger' && e.touches.length === 1){
+    const y = e.touches[0].pageY;
+    const dy = y - fingerTouchY;
+    if(Math.abs(dy) >= FINGER_THRESHOLD){
+      const sign = dy > 0 ? -1 : 1;
+      fingerTilt = Math.max(0, Math.min(60, fingerTilt + sign * FINGER_TILT_STEP));
+      fingerTouchY = y;
+      tiltAngle = fingerTilt;
+      applyTransform(curBearing, tiltAngle);
+      toast('Inclinaison: ' + tiltAngle + '°');
+    }
+  }
+});
+
+
+
+function circleMinus(){
+  circleRadius = Math.max(0, circleRadius - 4);
+  updateCircle();
+}
+function circlePlus(){
+  circleRadius = Math.min(200, circleRadius + 4);
+  updateCircle();
+}
+
+
+// ── Debug panel ────────────────────────────────────────────────
+function updateDebugPanel(){
+  const el = document.getElementById('dbg-panel');
+  if(!el) return;
+  const rows = [
+    ['compassMode',     compassMode],
+    ['tiltMode',        tiltMode],
+    ['tiltAngle',       tiltAngle + '°'],
+    ['fingerTilt',      fingerTilt + '°'],
+    ['curBearing',      Math.round(curBearing) + '°'],
+    ['targetBrg',       Math.round(targetBrg) + '°'],
+    ['smoothBrg',       Math.round(smoothBrg) + '°'],
+    ['lastHeading',     lastHeading != null ? Math.round(lastHeading) + '°' : 'null'],
+    ['isCentered',      isCentered],
+    ['firstFix',        firstFix],
+    ['curId (carte)',   curId],
+    ['MAP_SIZE',        MAP_SIZE + 'px'],
+    ['PERSPECTIVE',     PERSPECTIVE + 'px'],
+    ['LERP_B',          LERP_B],
+    ['FINGER_TILT_STEP',FINGER_TILT_STEP + '°'],
+    ['FINGER_THRESHOLD',FINGER_THRESHOLD + 'px'],
+  ];
+  el.innerHTML = rows.map(([k,v]) =>
+    `<div style="display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(255,255,255,.05);padding:2px 0">
+      <span style="color:rgba(255,255,255,.45)">${k}</span>
+      <span style="color:#a8d8ff;font-weight:600">${v}</span>
+    </div>`
+  ).join('');
+}
+setInterval(updateDebugPanel, 500);
+
+</script>
+
+
+
+    <div style="font-size:9px;color:rgba(255,255,255,.4);letter-spacing:.5px;text-transform:uppercase">%</div>
+  </div>
+  <button id="btn-r-plus" onclick="circlePlus()" style="width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+</div>
+
+
+<!-- Masque rectangle plein écran -->
+<div id="map-frame" style="
+  position:fixed;inset:0;
+  z-index:50;
+  pointer-events:none;
+  border:0;
+  box-sizing:border-box;
+  background:transparent;
+  border-radius:0;
+"></div>
+
+</body>
+</html>
+
+
+
+    <div style="font-size:9px;color:rgba(255,255,255,.4);letter-spacing:.5px;text-transform:uppercase">%</div>
+  </div>
+  <button id="btn-r-plus" onclick="circlePlus()" style="width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+</div>
+
+
+<!-- Masque rectangle plein écran -->
+<div id="map-frame" style="
+  position:fixed;inset:0;
+  z-index:50;
+  pointer-events:none;
+  border:0;
+  box-sizing:border-box;
+  background:transparent;
+  border-radius:0;
+"></div>
+
+</body>
+</html>
