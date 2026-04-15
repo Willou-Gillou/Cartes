@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Ma Position & Météo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#f1f5f9}
+    #app{display:flex;flex-direction:column;height:100dvh}
+
+    #weather-panel{background:linear-gradient(135deg,#1e3a5f,#1e293b);padding:10px 12px;display:flex;flex-direction:column;gap:6px;z-index:1000;border-bottom:1px solid #334155}
+    #top-row{display:flex;align-items:center;justify-content:space-between}
+    #top-row h1{font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px}
+    #top-right{display:flex;align-items:center;gap:6px}
+    #version-badge{font-size:10px;color:#475569;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:2px 7px;font-family:monospace}
+    #btn-copy{background:none;border:none;cursor:pointer;color:#64748b;padding:2px 4px;border-radius:6px;transition:color .2s;display:flex;align-items:center}
+    #btn-copy:hover{color:#f97316}
+
+    #current-weather{display:flex;align-items:center;gap:10px}
+    #temp-now{font-size:38px;font-weight:700;color:#f97316;white-space:nowrap;flex-shrink:0}
+    #weather-info{display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden}
+    #weather-desc{font-size:14px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #coords-display{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    .forecast-section{display:flex;flex-direction:column;gap:3px}
+    .forecast-label{font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.8px}
+    .forecast-row{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+    .forecast-card{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:5px 2px;text-align:center;overflow:hidden;min-width:0}
+    .fc-time{font-size:10px;color:#64748b;margin-bottom:2px}
+    .fc-icon{font-size:15px;line-height:1.2}
+    .fc-temp{font-size:12px;font-weight:700;color:#f97316;margin-top:2px}
+    .fc-desc{font-size:8px;color:#94a3b8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    #map{flex:1;position:relative}
+
+    /* Radar widget */
+    #radar-widget{position:absolute;bottom:30px;left:16px;z-index:1000;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+    #btn-radar-toggle{display:flex;align-items:center;gap:7px;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:22px;padding:8px 14px;cursor:pointer;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,.5);transition:border-color .2s,box-shadow .2s;color:#94a3b8;font-size:12px;font-weight:600;letter-spacing:.3px;white-space:nowrap}
+    #btn-radar-toggle:hover{border-color:#38bdf8}
+    #btn-radar-toggle.active{border-color:#38bdf8;box-shadow:0 4px 16px rgba(56,189,248,.25);color:#f1f5f9}
+    #btn-radar-toggle .rdot{width:8px;height:8px;border-radius:50%;background:#475569;transition:background .3s;flex-shrink:0}
+    #btn-radar-toggle.active .rdot{background:#38bdf8;box-shadow:0 0 6px #38bdf8;animation:rpulse 1.2s infinite}
+    @keyframes rpulse{0%,100%{opacity:1}50%{opacity:.4}}
+    #radar-frame-label{font-size:10px;color:#64748b;padding:2px 10px;background:rgba(15,23,42,.75);border-radius:10px;display:none;white-space:nowrap;backdrop-filter:blur(4px)}
+    #radar-frame-label.visible{display:block}
+    #radar-frame-label.nowcast{color:#f97316}
+
+    /* Bouton GPS */
+    #btn-locate{
+      position:absolute;bottom:30px;right:16px;z-index:1000;
+      background:#f97316;color:white;border:none;border-radius:50%;
+      width:50px;height:50px;font-size:20px;cursor:pointer;
+      box-shadow:0 4px 15px rgba(249,115,22,.5);
+      transition:background .2s,box-shadow .2s;
+    }
+    #btn-locate.pin-active{
+      background:#38bdf8;
+      box-shadow:0 4px 15px rgba(56,189,248,.5);
+    }
+
+    #copy-toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.85);background:#22c55e;color:white;padding:12px 24px;border-radius:14px;font-size:14px;font-weight:600;z-index:9999;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    #copy-toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="weather-panel">
+    <div id="top-row">
+      <h1>📍 Ma Position &amp; Météo</h1>
+      <div id="top-right">
+        <button id="btn-copy" title="Copier l'URL">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        </button>
+        <span id="version-badge">v26.04.14-2202</span>
+      </div>
+    </div>
+    <div id="current-weather">
+      <span id="temp-now">--</span>
+      <div id="weather-info">
+        <div id="weather-desc">Chargement...</div>
+        <div id="coords-display">En attente du GPS...</div>
+        <div id="city-display" style="font-size:12px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px"></div>
+      </div>
+    </div>
+    <div class="forecast-section">
+      <div class="forecast-label">Prévisions pluie toutes les 10 min</div>
+      <div class="forecast-row" id="forecast-10min"></div>
+    </div>
+    <div class="forecast-section">
+      <div class="forecast-label">Heure par heure</div>
+      <div class="forecast-row" id="forecast-hourly"></div>
+    </div>
+  </div>
+
+  <div id="map">
+    <div id="radar-widget">
+      <button id="btn-radar-toggle">
+        <span class="rdot"></span>
+        <span>RADAR PRÉCIPITATIONS</span>
+        <span id="radar-state-txt" style="color:#64748b;font-weight:400">OFF</span>
+      </button>
+      <div id="radar-frame-label"></div>
+    </div>
+  </div>
+
+  <button id="btn-locate">🎯</button>
+</div>
+<div id="copy-toast">✅ URL copiée !</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var WMO={
+  0:{ic:"☀️",lb:"Dégagé"},1:{ic:"⛅",lb:"Quasi dég."},
+  2:{ic:"⛅",lb:"Partiel."},3:{ic:"☁️",lb:"Couvert"},
+  45:{ic:"🌫️",lb:"Brouillard"},48:{ic:"🌫️",lb:"Brouil.givr."},
+  51:{ic:"🌦️",lb:"Bruine lég."},53:{ic:"🌦️",lb:"Bruine mod."},55:{ic:"🌦️",lb:"Bruine fort."},
+  61:{ic:"🌧️",lb:"Pluie lég."},63:{ic:"🌧️",lb:"Pluie mod."},65:{ic:"🌧️",lb:"Pluie fort."},
+  71:{ic:"❄️",lb:"Neige lég."},73:{ic:"❄️",lb:"Neige mod."},75:{ic:"❄️",lb:"Neige fort."},
+  80:{ic:"🌦️",lb:"Averse lég."},81:{ic:"🌧️",lb:"Averse mod."},82:{ic:"⛈️",lb:"Averse viol."},
+  95:{ic:"⛈️",lb:"Orage"},96:{ic:"⛈️",lb:"Orage+grêle"},99:{ic:"⛈️",lb:"Orage fort"}
+};
+function isNightHour(h){ return h>=22 || h<6; }
+function currentHour(){ return new Date().getHours(); }
+function wmo(c,h){ var w=WMO[c]||{ic:"🌡️",lb:"Inconnu"}; if((c===0||c===1||c===2)&&((h>=22)||(h<6))){ return {ic:"🌙",lb:w.lb}; } return w; }
+function lerp(a,b,t){return a+(b-a)*t;}
+
+function card(time,code,value,labelOverride,hourCtx){
+  var w=wmo(code),d=document.createElement("div");
+  d.className="forecast-card";
+  d.innerHTML="<div class='fc-time'>"+time+"</div><div class='fc-icon'>"+w.ic+"</div><div class='fc-temp'>"+value+"</div><div class='fc-desc'>"+(labelOverride||w.lb)+"</div>";
+  return d;
+}
+function skeleton(row){
+  row.innerHTML="";
+  for(var i=0;i<6;i++){var d=document.createElement("div");d.className="forecast-card";d.innerHTML="<div class='fc-time'>…</div><div class='fc-icon'>·</div><div class='fc-temp'>--</div><div class='fc-desc'>--</div>";row.appendChild(d);}
+}
+
+async function fetchWeather(lat,lng,isPin){
+  var url="https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lng+"&current=temperature_2m,weathercode&hourly=temperature_2m,weathercode,precipitation,precipitation&timezone=auto&forecast_days=2";
+  try{
+    var r=await fetch(url),d=await r.json();
+    var tn=Math.round(d.current.temperature_2m),cn=d.current.weathercode,w=wmo(cn);
+    document.getElementById("temp-now").textContent=tn+"°";
+    document.getElementById("weather-desc").innerHTML=w.ic+" "+w.lb;
+    if(isPin){
+      document.getElementById("coords-display").textContent=lat.toFixed(5)+", "+lng.toFixed(5)+" · Point sélectionné";
+    }
+    var now=new Date(),times=d.hourly.time,temps=d.hourly.temperature_2m,codes=d.hourly.weathercode;
+    var hi=times.findIndex(function(t){var dt=new Date(t);return dt.getDate()===now.getDate()&&dt.getHours()===now.getHours();});
+    if(hi<0)hi=0;
+    var r10=document.getElementById("forecast-10min");r10.innerHTML="";
+    var m0=now.getMinutes();
+    for(var s=1;s<=6;s++){
+      var mOff=s*10,tot=m0+mOff,hOff=Math.floor(tot/60),mInH=tot%60;
+      var si=hi+hOff,ni=si+1<temps.length?si+1:si;
+      var t0=temps[si]!==null?temps[si]:tn,t1=temps[ni]!==null?temps[ni]:t0;
+      var precip=d.hourly.precipitation&&d.hourly.precipitation[si]!==null?d.hourly.precipitation[si]:0;
+      r10.appendChild(card("<span style='font-size:8px'>"+(mOff===60?"dans 1h":"dans "+mOff+"m")+"</span>",codes[si]!==null?codes[si]:cn,precip.toFixed(1)+" mm","",new Date(now.getTime()+mOff*60000).getHours()));
+    }
+    var rH=document.getElementById("forecast-hourly");rH.innerHTML="";
+    for(var i=hi+1;i<=hi+6&&i<times.length;i++){var dt2=new Date(times[i]);rH.appendChild(card(dt2.getHours()+"h",codes[i],Math.round(temps[i])+"°C",null,dt2.getHours()));}
+
+    // Night fix: replace any sun with moon for clear/partly cloudy hours at 22h-6h
+    Array.from(document.querySelectorAll('#forecast-hourly .forecast-card')).forEach(function(el){
+      var t = el.querySelector('.fc-time');
+      var i = el.querySelector('.fc-icon');
+      if(!t || !i) return;
+      var txt = t.textContent.trim();
+      var hh = parseInt(txt,10);
+      if(isNaN(hh)) return;
+      if(hh >= 22 || hh < 6){
+        if(i.textContent.indexOf('☀') !== -1 || i.textContent.indexOf('⛅') !== -1){
+          i.textContent = '🌙';
+        }
+      }
+    });
+
+  }catch(e){document.getElementById("weather-desc").innerHTML="⚠️ Météo indisponible";}
+}
+
+/* ─── CARTE ─── */
+var map=L.map("map",{zoomControl:true,maxZoom:8,touchZoom:false,doubleClickZoom:false});
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:8,attribution:"© OpenStreetMap"}).addTo(map);
+
+/* Icône GPS orange */
+var gpsIcon=L.divIcon({html:'<div style="background:#f97316;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.4)"></div>',iconSize:[18,18],iconAnchor:[9,18],className:""});
+
+/* Icône pin bleu double-click */
+var pinIcon=L.divIcon({html:'<div style="background:#38bdf8;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 10px rgba(56,189,248,.6)"></div>',iconSize:[18,18],iconAnchor:[9,18],className:""});
+
+skeleton(document.getElementById("forecast-10min"));
+skeleton(document.getElementById("forecast-hourly"));
+
+var mk=null,ci=null,ff=true,llat=null,llng=null;
+var pinMk=null,pinActive=false;
+var gpsLat=null,gpsLng=null;
+
+function setPinMode(active){
+  pinActive=active;
+  var btn=document.getElementById("btn-locate");
+  if(active){btn.classList.add("pin-active");}
+  else{btn.classList.remove("pin-active");}
+}
+
+/* Double-tap / double-click → pin météo (desktop + mobile) */
+function placePinAt(lat,lng){
+  if(pinMk){map.removeLayer(pinMk);}
+  pinMk=L.marker([lat,lng],{icon:pinIcon}).addTo(map);
+  setPinMode(true);
+  skeleton(document.getElementById("forecast-10min"));
+  skeleton(document.getElementById("forecast-hourly"));
+  fetchWeather(lat,lng,true); fetchCity(lat,lng);
+}
+
+// Desktop : dblclick natif
+map.on("dblclick",function(e){ placePinAt(e.latlng.lat,e.latlng.lng); });
+
+// Mobile : détection double-tap via touchend
+var lastTapTime=0, lastTapTouch=null;
+map.getContainer().addEventListener("touchend",function(e){
+  if(e.touches.length>0) return; // doigt encore posé
+  var touch=e.changedTouches[0];
+  var now=Date.now();
+  var diff=now-lastTapTime;
+  if(diff<350 && diff>30 && lastTapTouch){
+    // Double-tap détecté
+    var rect=map.getContainer().getBoundingClientRect();
+    var cp=L.point(touch.clientX-rect.left, touch.clientY-rect.top);
+    var ll=map.containerPointToLatLng(cp);
+    placePinAt(ll.lat,ll.lng);
+    e.preventDefault();
+    lastTapTime=0; // reset pour éviter triple-tap
+    return;
+  }
+  lastTapTime=now;
+  lastTapTouch=touch;
+},{passive:false});
+
+function onPos(pos){
+  var lat=pos.coords.latitude,lng=pos.coords.longitude,acc=Math.round(pos.coords.accuracy);
+  gpsLat=lat;gpsLng=lng;
+  if(!pinActive){
+    document.getElementById("coords-display").textContent=lat.toFixed(5)+", "+lng.toFixed(5)+" ±"+acc+"m";
+  }
+  if(!mk){mk=L.marker([lat,lng],{icon:gpsIcon}).addTo(map);}
+  else{mk.setLatLng([lat,lng]);}
+  if(!ci){ci=L.circle([lat,lng],{radius:acc,color:"#f97316",fillOpacity:.1,weight:1}).addTo(map);}
+  else{ci.setLatLng([lat,lng]).setRadius(acc);}
+  if(ff){map.setView([lat,lng],8);ff=false;}
+  var dist=llat?Math.abs(lat-llat)+Math.abs(lng-llng):999;
+  if(dist>0.0005||llat===null){
+    llat=lat;llng=lng;
+    if(!pinActive){fetchWeather(lat,lng,false); fetchCity(lat,lng);}
+  }
+}
+function onErr(e){
+  document.getElementById("weather-desc").innerHTML=e.code===1?"🔒 Autoriser la localisation":"⚠️ GPS indisponible";
+  map.setView([43.55,10.73],8);
+}
+navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:10000,timeout:15000});
+
+/* Bouton 🎯 : retour GPS si pin actif, sinon recentre */
+document.getElementById("btn-locate").addEventListener("click",function(){
+  if(pinActive){
+    if(pinMk){map.removeLayer(pinMk);pinMk=null;}
+    setPinMode(false);
+    if(gpsLat!==null){
+      document.getElementById("coords-display").textContent=gpsLat.toFixed(5)+", "+gpsLng.toFixed(5);
+      skeleton(document.getElementById("forecast-10min"));
+      skeleton(document.getElementById("forecast-hourly"));
+      fetchWeather(gpsLat,gpsLng,false); lastGeoLat=null; fetchCity(gpsLat,gpsLng);
+      map.setView([gpsLat,gpsLng],8);
+    }
+  }else{
+    if(mk)map.setView(mk.getLatLng(),8);
+  }
+});
+
+
+/* ─── Reverse geocoding Nominatim ─── */
+var lastGeoLat=null,lastGeoLng=null;
+async function fetchCity(lat,lng){
+  // Évite les requêtes répétées si position quasi identique
+  if(lastGeoLat!==null && Math.abs(lat-lastGeoLat)<0.005 && Math.abs(lng-lastGeoLng)<0.005) return;
+  lastGeoLat=lat; lastGeoLng=lng;
+  try{
+    var r=await fetch("https://nominatim.openstreetmap.org/reverse?lat="+lat+"&lon="+lng+"&format=json&accept-language=fr",
+      {headers:{"Accept-Language":"fr"}});
+    var d=await r.json();
+    var a=d.address||{};
+    var city=a.city||a.town||a.village||a.municipality||a.county||"";
+    var country=a.country||"";
+    var txt=city&&country?city+", "+country:city||country||"";
+    document.getElementById("city-display").textContent=txt;
+  }catch(e){ document.getElementById("city-display").textContent=""; }
+}
+
+/* ─── RADAR RAINVIEWER 512px ─── */
+var apiData={},mapFrames=[],radarLayers={},lastPastIdx=-1;
+var animPos=0,animTimer=null,radarOn=false;
+
+function frameTimeLabel(frame,idx){
+  var now=Date.now()/1000,diff=Math.round((frame.time-now)/60);
+  var lbl=document.getElementById("radar-frame-label");
+  if(idx===lastPastIdx){lbl.textContent="● Maintenant";lbl.className="visible";return;}
+  if(diff>0){lbl.textContent="▲ Prévision +"+diff+"min";lbl.className="visible nowcast";return;}
+  lbl.textContent="◀ Passé "+Math.abs(diff)+"min";lbl.className="visible";
+}
+function addLayer(frame){
+  if(!radarLayers[frame.path]){
+    radarLayers[frame.path]=L.tileLayer(
+      apiData.host+frame.path+"/512/{z}/{x}/{y}/6/1_1.png",
+      {tileSize:512,zoomOffset:-1,opacity:0.01,zIndex:frame.time,maxZoom:8}
+    );
+  }
+  if(!map.hasLayer(radarLayers[frame.path]))map.addLayer(radarLayers[frame.path]);
+}
+function showFrame(pos){
+  while(pos>=mapFrames.length)pos-=mapFrames.length;
+  while(pos<0)pos+=mapFrames.length;
+  animPos=pos;
+  addLayer(mapFrames[pos]);
+  if(pos+1<mapFrames.length)addLayer(mapFrames[pos+1]);
+  for(var k in radarLayers){if(map.hasLayer(radarLayers[k]))radarLayers[k].setOpacity(0.01);}
+  radarLayers[mapFrames[pos].path].setOpacity(0.65);
+  frameTimeLabel(mapFrames[pos],pos);
+}
+function stopAnim(){if(animTimer){clearTimeout(animTimer);animTimer=null;}}
+function playAnim(){
+  var next=animPos+1;
+  if(next>=mapFrames.length)next=0;
+  showFrame(next);
+  animTimer=setTimeout(playAnim,next===mapFrames.length-1?1800:800);
+}
+function initRadar(api){
+  stopAnim();
+  for(var k in radarLayers){if(map.hasLayer(radarLayers[k]))map.removeLayer(radarLayers[k]);}
+  mapFrames=[];radarLayers={};animPos=0;
+  if(!api||!api.radar||!api.radar.past)return;
+  mapFrames=api.radar.past.concat(api.radar.nowcast||[]);
+  lastPastIdx=api.radar.past.length-1;
+  if(radarOn){showFrame(0);playAnim();}
+}
+function fetchRadar(){
+  fetch("https://api.rainviewer.com/public/weather-maps.json")
+    .then(function(r){return r.json();}).then(function(d){apiData=d;initRadar(d);})
+    .catch(function(){});
+}
+function toggleRadar(){
+  radarOn=!radarOn;
+  var btn=document.getElementById("btn-radar-toggle"),txt=document.getElementById("radar-state-txt"),lbl=document.getElementById("radar-frame-label");
+  if(radarOn){btn.classList.add("active");txt.style.color="#38bdf8";txt.textContent="ON";if(mapFrames.length>0){showFrame(0);playAnim();}else fetchRadar();}
+  else{btn.classList.remove("active");txt.style.color="#64748b";txt.textContent="OFF";lbl.className="";stopAnim();for(var k in radarLayers){if(map.hasLayer(radarLayers[k]))map.removeLayer(radarLayers[k]);}}
+}
+fetchRadar();
+setInterval(function(){if(radarOn){stopAnim();fetchRadar();}},300000);
+document.getElementById("btn-radar-toggle").addEventListener("click",toggleRadar);
+
+/* ── Copier URL ── */
+document.getElementById("btn-copy").addEventListener("click",function(){
+  var url=window.location.href,toast=document.getElementById("copy-toast");
+  function show(){toast.classList.add("show");setTimeout(function(){toast.classList.remove("show");},2200);}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(show).catch(function(){var ta=document.createElement("textarea");ta.value=url;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);show();});}
+  else{var ta=document.createElement("textarea");ta.value=url;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);show();}
+});
+</script>
+</body>
+</html>
