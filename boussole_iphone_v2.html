@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Boussole — Réinitialisation du Cap</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a0f;
+      color: #f0f0f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 40px;
+    }
+
+    .compass-wrapper {
+      position: relative;
+      width: 280px;
+      height: 280px;
+      margin-bottom: 40px;
+    }
+
+    .compass-ring {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px solid #2a2a3a;
+      background: radial-gradient(circle at 30% 30%, #1e1e2e, #0d0d18);
+      box-shadow: 0 0 0 1px #111, 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+      position: absolute;
+      top: 0; left: 0;
+      transition: transform 0.15s ease-out;
+    }
+
+    .cardinal {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0; left: 0;
+    }
+    .cardinal span {
+      position: absolute;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #555;
+    }
+    .cardinal .N { top: 12px; left: 50%; transform: translateX(-50%); color: #e05555; }
+    .cardinal .S { bottom: 12px; left: 50%; transform: translateX(-50%); }
+    .cardinal .E { right: 14px; top: 50%; transform: translateY(-50%); }
+    .cardinal .W { left: 14px; top: 50%; transform: translateY(-50%); }
+
+    .ticks::before {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: repeating-conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        transparent 8.5deg,
+        rgba(255,255,255,0.08) 8.5deg,
+        rgba(255,255,255,0.08) 9deg
+      );
+    }
+
+    .needle-container {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0; left: 0;
+      pointer-events: none;
+    }
+    .needle {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 6px;
+      height: 120px;
+      transform-origin: 50% 100%;
+      transform: translateX(-50%) translateY(-100%) rotate(0deg);
+      transition: transform 0.15s ease-out;
+    }
+    .needle .north-half {
+      width: 6px;
+      height: 60px;
+      background: linear-gradient(to bottom, #ff4444, #cc2222);
+      border-radius: 3px 3px 0 0;
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+    }
+    .needle .south-half {
+      width: 6px;
+      height: 60px;
+      background: linear-gradient(to top, #aaa, #666);
+      clip-path: polygon(0% 0%, 100% 0%, 50% 100%);
+    }
+
+    .center-dot {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #fff 0%, #888 100%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      box-shadow: 0 0 6px rgba(0,0,0,0.5);
+    }
+
+    .heading-display {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .heading-value {
+      font-size: 4.5rem;
+      font-weight: 200;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      color: #f0f0f0;
+    }
+    .heading-value sup { font-size: 1.5rem; vertical-align: super; color: #888; }
+    .heading-label {
+      font-size: 0.85rem;
+      color: #555;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+    .heading-raw {
+      font-size: 0.75rem;
+      color: #383850;
+      margin-top: 4px;
+    }
+
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 220px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4f8ef7, #2d6be4);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(79,142,247,0.35);
+    }
+    .btn-primary:active { transform: scale(0.96); }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: #aaa;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn-secondary:active { transform: scale(0.96); }
+
+    .status {
+      margin-top: 28px;
+      font-size: 0.75rem;
+      color: #3a3a5a;
+      text-align: center;
+      letter-spacing: 0.06em;
+      min-height: 18px;
+      padding: 0 20px;
+    }
+    .status.ok  { color: #3a8a5a; }
+    .status.err { color: #cc4444; }
+
+    #permission-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 20px;
+      padding: 30px;
+    }
+    #permission-screen .icon { font-size: 4rem; }
+    #permission-screen p { color: #888; font-size: 0.95rem; line-height: 1.6; max-width: 280px; }
+
+    #main-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+<div id="permission-screen">
+  <div class="icon">🧭</div>
+  <h1>Boussole</h1>
+  <p>Cette application a besoin d'accéder au capteur de mouvement de votre iPhone pour afficher et réinitialiser le cap.</p>
+  <button class="btn btn-primary" id="btn-permission" style="width:220px" onclick="requestPermission()">
+    Autoriser l'accès
+  </button>
+  <div class="status" id="perm-status"></div>
+</div>
+
+<div id="main-screen">
+  <h1>Boussole</h1>
+
+  <div class="compass-wrapper">
+    <div class="compass-ring" id="compass-ring">
+      <div class="ticks"></div>
+      <div class="cardinal">
+        <span class="N">N</span>
+        <span class="S">S</span>
+        <span class="E">E</span>
+        <span class="W">W</span>
+      </div>
+    </div>
+    <div class="needle-container">
+      <div class="needle" id="needle">
+        <div class="north-half"></div>
+        <div class="south-half"></div>
+      </div>
+    </div>
+    <div class="center-dot"></div>
+  </div>
+
+  <div class="heading-display">
+    <div class="heading-value" id="heading-value">—<sup>°</sup></div>
+    <div class="heading-label" id="heading-direction">En attente…</div>
+    <div class="heading-raw" id="heading-raw"></div>
+  </div>
+
+  <div class="btn-group">
+    <button class="btn btn-primary" id="btn-reset" onclick="resetCap()">⟳ Réinitialiser le cap</button>
+    <button class="btn btn-secondary" onclick="goBack()">← Retour</button>
+  </div>
+
+  <div class="status" id="compass-status">En attente du capteur…</div>
+</div>
+
+<script>
+  var offset   = 0;
+  var lastRaw  = null;
+
+  function normalizeDeg(d) {
+    return ((d % 360) + 360) % 360;
+  }
+
+  function degToDir(d) {
+    var dirs = ['N','N-NE','NE','E-NE','E','E-SE','SE','S-SE',
+                'S','S-SO','SO','O-SO','O','O-NO','NO','N-NO'];
+    return dirs[Math.round(d / 22.5) % 16];
+  }
+
+  function handleOrientation(e) {
+    var raw = (typeof e.webkitCompassHeading !== 'undefined') ? e.webkitCompassHeading : null;
+
+    if (raw === null || isNaN(raw)) {
+      document.getElementById('compass-status').textContent = 'webkitCompassHeading indisponible.';
+      document.getElementById('compass-status').className = 'status err';
+      return;
+    }
+
+    lastRaw = raw;
+    var adjusted = normalizeDeg(raw - offset);
+
+    document.getElementById('needle').style.transform =
+      'translateX(-50%) translateY(-100%) rotate(' + adjusted + 'deg)';
+    document.getElementById('compass-ring').style.transform =
+      'rotate(' + (-adjusted) + 'deg)';
+
+    document.getElementById('heading-value').innerHTML =
+      Math.round(adjusted) + '<sup>°</sup>';
+    document.getElementById('heading-direction').textContent = degToDir(adjusted);
+    document.getElementById('heading-raw').textContent = 'Cap brut : ' + Math.round(raw) + '°';
+
+    document.getElementById('compass-status').textContent = '● Capteur actif';
+    document.getElementById('compass-status').className = 'status ok';
+  }
+
+  function startCompass() {
+    window.addEventListener('deviceorientation', handleOrientation, true);
+  }
+
+  /* ── Demande de permission iOS 13+ ── */
+  function requestPermission() {
+    var permStatus = document.getElementById('perm-status');
+
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+
+      DeviceOrientationEvent.requestPermission()
+        .then(function(result) {
+          if (result === 'granted') {
+            showMain();
+          } else {
+            permStatus.textContent = 'Accès refusé. Vérifie Réglages > Safari > Mouvement & orientation.';
+            permStatus.className = 'status err';
+          }
+        })
+        .catch(function(err) {
+          permStatus.textContent = 'Erreur : ' + err.message;
+          permStatus.className = 'status err';
+        });
+
+    } else {
+      /* Android / vieux iOS — accès direct */
+      showMain();
+    }
+  }
+
+  function showMain() {
+    document.getElementById('permission-screen').style.display = 'none';
+    document.getElementById('main-screen').style.display = 'flex';
+    startCompass();
+  }
+
+  function resetCap() {
+    if (lastRaw !== null) {
+      offset = lastRaw;
+      var btn = document.getElementById('btn-reset');
+      var prev = btn.style.background;
+      btn.style.background = 'linear-gradient(135deg,#5fbc77,#2e9e55)';
+      btn.textContent = '✓ Cap réinitialisé !';
+      setTimeout(function() {
+        btn.style.background = '';
+        btn.textContent = '⟳ Réinitialiser le cap';
+      }, 1400);
+    } else {
+      document.getElementById('compass-status').textContent = 'Aucune donnée capteur reçue.';
+      document.getElementById('compass-status').className = 'status err';
+    }
+  }
+
+  function goBack() {
+    window.removeEventListener('deviceorientation', handleOrientation, true);
+    lastRaw = null;
+    offset  = 0;
+    document.getElementById('main-screen').style.display  = 'none';
+    document.getElementById('permission-screen').style.display = 'flex';
+    document.getElementById('perm-status').textContent = '';
+  }
+</script>
+</body>
+</html>
